@@ -14,3 +14,5 @@ Chaque message envoyé par un client est automatiquement **diffusé à l’ensem
 - Gestion des connexions simultanées avec **un thread par client**
 - Diffusion des messages à tous les clients connectés
 - Journalisation des messages échangés
+
+#### [📘 Aide utilisateur](HELP.md)
