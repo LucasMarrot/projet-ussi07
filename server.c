@@ -91,13 +91,14 @@ void ensure_channel_directory_and_file(const char *channel_name)
 }
 
 /**
- * Log un message dans le fichier de stockage d'un channel.
+ * Log un message dans le fichier de stockage d'un channel et l'envoie à tous les clients.
  * @param channel_name Le nom du channel.
  * @param sender Le nom de l'expéditeur.
  * @param message Le message à logger.
- * @param channel_name Le nom du channel.
+ * @param channel Le channel auquel envoyer le message.
+ * @param sender_socket Le socket de l'expéditeur.
  */
-void log_message(const char *channel_name, const char *sender, const char *message)
+void log_and_broadcast_message(const char *channel_name, const char *sender, const char *message, Channel *channel, int sender_socket)
 {
     char file_path[256];
     get_storage_file_path(channel_name, file_path, sizeof(file_path));
@@ -114,8 +115,22 @@ void log_message(const char *channel_name, const char *sender, const char *messa
     char time_buffer[26];
     strftime(time_buffer, sizeof(time_buffer), "%d/%m/%Y %H:%M:%S", tm_info);
 
-    fprintf(file, "[%s] (%s) %s : %s\n", channel_name, time_buffer, sender, message);
+    char formatted_message[BUFFER_SIZE];
+    snprintf(formatted_message, sizeof(formatted_message), "[%s] (%s) %s : %s\n", channel_name, time_buffer, sender, message);
+
+    fprintf(file, "%s", formatted_message);
     fclose(file);
+
+    // Envoyer le message formaté à tous les clients du channel sauf l'expéditeur
+    pthread_mutex_lock(&mutex);
+    for (int i = 0; i < channel->client_count; ++i)
+    {
+        if (channel->clients[i] != sender_socket)
+        {
+            send(channel->clients[i], formatted_message, strlen(formatted_message), 0);
+        }
+    }
+    pthread_mutex_unlock(&mutex);
 }
 
 /**
@@ -284,9 +299,15 @@ void *handle_client(void *args)
 
     pthread_mutex_lock(&mutex);
     channel->clients[channel->client_count++] = client_socket;
+    int current_count = channel->client_count;
     pthread_mutex_unlock(&mutex);
 
     send_storage_to_client(client_socket, channel_name);
+
+    // Envoyer un message d'entrée à tous les clients du channel (sauf le nouveau)
+    char join_message[BUFFER_SIZE];
+    snprintf(join_message, sizeof(join_message), "%s a rejoint le channel '%s'... (%d/%d)\n", client_name, channel_name, current_count, MAX_CLIENTS);
+    broadcast_message(channel, join_message, client_socket);
 
     while (1)
     {
@@ -312,13 +333,28 @@ void *handle_client(void *args)
                 continue;
             }
 
+            // Envoyer un message de départ à l'ancien channel
+            pthread_mutex_lock(&mutex);
+            int remaining_clients = channel->client_count - 1;
+            pthread_mutex_unlock(&mutex);
+            
+            char leave_message[BUFFER_SIZE];
+            snprintf(leave_message, sizeof(leave_message), "%s a quitter le channel '%s'... (%d/%d)\n", client_name, channel_name, remaining_clients, MAX_CLIENTS);
+            broadcast_message(channel, leave_message, client_socket);
+            
             remove_client_from_channel(channel, client_socket);
 
             pthread_mutex_lock(&mutex);
             new_channel->clients[new_channel->client_count++] = client_socket;
+            int new_count = new_channel->client_count;
             pthread_mutex_unlock(&mutex);
 
             send_storage_to_client(client_socket, new_channel_name);
+
+            // Envoyer un message d'entrée au nouveau channel
+            char join_message[BUFFER_SIZE];
+            snprintf(join_message, sizeof(join_message), "%s a rejoint le channel '%s'... (%d/%d)\n", client_name, new_channel_name, new_count, MAX_CLIENTS);
+            broadcast_message(new_channel, join_message, client_socket);
 
             channel = new_channel;
             strncpy(channel_name, new_channel_name, sizeof(channel_name) - 1);
@@ -334,10 +370,18 @@ void *handle_client(void *args)
         char formatted_message[BUFFER_SIZE];
         snprintf(formatted_message, sizeof(formatted_message), "%s : %s\n", client_name, buffer);
 
-        log_message(channel_name, client_name, buffer);
-        broadcast_message(channel, formatted_message, client_socket);
+        log_and_broadcast_message(channel_name, client_name, buffer, channel, client_socket);
     }
 
+    // Envoyer un message de départ à tous les clients du channel (sauf celui qui part)
+    pthread_mutex_lock(&mutex);
+    int remaining_clients = channel->client_count - 1;
+    pthread_mutex_unlock(&mutex);
+
+    char leave_message[BUFFER_SIZE];
+    snprintf(leave_message, sizeof(leave_message), "%s a quitter le channel '%s'... (%d/%d)\n", client_name, channel_name, remaining_clients, MAX_CLIENTS);
+
+    broadcast_message(channel, leave_message, client_socket);
     remove_client_from_channel(channel, client_socket);
     close(client_socket);
     return NULL;
