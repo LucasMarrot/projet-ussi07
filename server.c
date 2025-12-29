@@ -10,6 +10,7 @@
 #include <time.h>
 #include <dirent.h>
 #include <sys/types.h>
+#include <ctype.h>
 
 #define PORT 12345
 #define BUFFER_SIZE 1024
@@ -18,7 +19,7 @@
 
 typedef struct
 {
-    int port;
+    char name[50];
     int clients[MAX_CLIENTS];
     int client_count;
     int is_new; // Indique si le channel est nouveau
@@ -29,39 +30,36 @@ int channel_count = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**
- * Génère un port pour un channel en utilisant un hash du nom du channel.
- * @param channel_name Le nom du channel.
- * @return Le port généré.
+ * Convertit une string en minuscules.
+ * @param str La string à convertir.
  */
-int generate_port_for_channel(const char *channel_name)
+void to_lowercase(char *str)
 {
-    uint32_t hash = 0;
-    for (size_t i = 0; channel_name[i] != '\0'; i++)
+    for (int i = 0; str[i] != '\0'; i++)
     {
-        hash = 31 * hash + channel_name[i];
+        str[i] = tolower(str[i]);
     }
-    return 1024 + (hash % 64512);
 }
 
 /**
  * Obtient le chemin du fichier de stockage pour un channel.
- * @param port Le port du channel.
+ * @param channel_name Le nom du channel.
  * @param buffer Le buffer où le chemin sera stocké.
  * @param buffer_size La taille du buffer.
  */
-void get_storage_file_path(int port, char *buffer, size_t buffer_size)
+void get_storage_file_path(const char *channel_name, char *buffer, size_t buffer_size)
 {
-    snprintf(buffer, buffer_size, "storage_server/storage_%d/history_channel_file_%d.txt", port, port);
+    snprintf(buffer, buffer_size, "storage_server/storage_%s/history_channel_file_%s.txt", channel_name, channel_name);
 }
 
 /**
  * Assure la création du répertoire et du fichier de stockage pour un channel.
- * @param port Le port du channel.
+ * @param channel_name Le nom du channel.
  */
-void ensure_channel_directory_and_file(int port)
+void ensure_channel_directory_and_file(const char *channel_name)
 {
     char dir_path[256];
-    snprintf(dir_path, sizeof(dir_path), "storage_server/storage_%d", port);
+    snprintf(dir_path, sizeof(dir_path), "storage_server/storage_%s", channel_name);
 
     // Crée le répertoire pour le channel s'il n'existe pas
     if (mkdir("storage_server", 0777) == -1 && errno != EEXIST)
@@ -77,7 +75,7 @@ void ensure_channel_directory_and_file(int port)
     }
 
     char file_path[256];
-    snprintf(file_path, sizeof(file_path), "%s/history_channel_file_%d.txt", dir_path, port);
+    snprintf(file_path, sizeof(file_path), "%s/history_channel_file_%s.txt", dir_path, channel_name);
 
     FILE *file = fopen(file_path, "r");
     if (file == NULL)
@@ -95,15 +93,15 @@ void ensure_channel_directory_and_file(int port)
 
 /**
  * Log un message dans le fichier de stockage d'un channel.
- * @param port Le port du channel.
+ * @param channel_name Le nom du channel.
  * @param sender Le nom de l'expéditeur.
  * @param message Le message à logger.
  * @param channel_name Le nom du channel.
  */
-void log_message(int port, const char *sender, const char *message, const char *channel_name)
+void log_message(const char *channel_name, const char *sender, const char *message)
 {
     char file_path[256];
-    get_storage_file_path(port, file_path, sizeof(file_path));
+    get_storage_file_path(channel_name, file_path, sizeof(file_path));
 
     FILE *file = fopen(file_path, "a");
     if (file == NULL)
@@ -123,13 +121,12 @@ void log_message(int port, const char *sender, const char *message, const char *
 
 /**
  * Écrit le message de bienvenue dans le fichier de stockage d'un channel.
- * @param port Le port du channel.
  * @param channel_name Le nom du channel.
  */
-void write_welcome_message(int port, const char *channel_name)
+void write_welcome_message(const char *channel_name)
 {
     char file_path[256];
-    get_storage_file_path(port, file_path, sizeof(file_path));
+    get_storage_file_path(channel_name, file_path, sizeof(file_path));
 
     FILE *file = fopen(file_path, "r");
     if (file == NULL)
@@ -160,12 +157,12 @@ void write_welcome_message(int port, const char *channel_name)
 /**
  * Envoie le contenu du fichier de stockage d'un channel à un client.
  * @param client_socket Le socket du client.
- * @param port Le port du channel.
+ * @param channel_name Le nom du channel.
  */
-void send_storage_to_client(int client_socket, int port)
+void send_storage_to_client(int client_socket, const char *channel_name)
 {
     char file_path[256], line[BUFFER_SIZE];
-    get_storage_file_path(port, file_path, sizeof(file_path));
+    get_storage_file_path(channel_name, file_path, sizeof(file_path));
 
     FILE *file = fopen(file_path, "r");
     if (file == NULL)
@@ -183,17 +180,16 @@ void send_storage_to_client(int client_socket, int port)
 
 /**
  * Trouve ou crée un channel.
- * @param port Le port du channel.
  * @param channel_name Le nom du channel.
  * @return Le pointeur vers le channel trouvé ou créé.
  */
-Channel *find_or_create_channel(int port, const char *channel_name)
+Channel *find_or_create_channel(const char *channel_name)
 {
     pthread_mutex_lock(&mutex);
 
     for (int i = 0; i < channel_count; ++i)
     {
-        if (channels[i].port == port)
+        if (strcmp(channels[i].name, channel_name) == 0)
         {
             pthread_mutex_unlock(&mutex);
             return &channels[i];
@@ -206,11 +202,12 @@ Channel *find_or_create_channel(int port, const char *channel_name)
         return NULL;
     }
 
-    channels[channel_count].port = port;
+    strncpy(channels[channel_count].name, channel_name, sizeof(channels[channel_count].name) - 1);
+    channels[channel_count].name[sizeof(channels[channel_count].name) - 1] = '\0';
     channels[channel_count].client_count = 0;
     channels[channel_count].is_new = 1;
-    ensure_channel_directory_and_file(port);   // Crée le dossier et le fichier du channel
-    write_welcome_message(port, channel_name); // Écrit le message de bienvenue si nécessaire
+    ensure_channel_directory_and_file(channel_name); // Crée le dossier et le fichier du channel
+    write_welcome_message(channel_name);             // Écrit le message de bienvenue si nécessaire
     channel_count++;
 
     pthread_mutex_unlock(&mutex);
@@ -274,13 +271,12 @@ void *handle_client(void *args)
     char buffer[BUFFER_SIZE];
     char client_name[50];
     char channel_name[50];
-    int port;
 
     recv(client_socket, client_name, sizeof(client_name), 0);
     recv(client_socket, channel_name, sizeof(channel_name), 0);
+    to_lowercase(channel_name);
 
-    port = generate_port_for_channel(channel_name);
-    Channel *channel = find_or_create_channel(port, channel_name);
+    Channel *channel = find_or_create_channel(channel_name);
 
     if (channel == NULL)
     {
@@ -292,7 +288,7 @@ void *handle_client(void *args)
     channel->clients[channel->client_count++] = client_socket;
     pthread_mutex_unlock(&mutex);
 
-    send_storage_to_client(client_socket, port);
+    send_storage_to_client(client_socket, channel_name);
 
     while (1)
     {
@@ -308,9 +304,9 @@ void *handle_client(void *args)
         {
             char new_channel_name[50];
             sscanf(buffer + 8, "%s", new_channel_name);
+            to_lowercase(new_channel_name);
 
-            int new_port = generate_port_for_channel(new_channel_name);
-            Channel *new_channel = find_or_create_channel(new_port, new_channel_name);
+            Channel *new_channel = find_or_create_channel(new_channel_name);
 
             if (new_channel == NULL)
             {
@@ -324,10 +320,9 @@ void *handle_client(void *args)
             new_channel->clients[new_channel->client_count++] = client_socket;
             pthread_mutex_unlock(&mutex);
 
-            send_storage_to_client(client_socket, new_port);
+            send_storage_to_client(client_socket, new_channel_name);
 
             channel = new_channel;
-            port = new_port;
             strncpy(channel_name, new_channel_name, sizeof(channel_name) - 1);
             channel_name[sizeof(channel_name) - 1] = '\0';
 
@@ -341,7 +336,7 @@ void *handle_client(void *args)
         char formatted_message[BUFFER_SIZE];
         snprintf(formatted_message, sizeof(formatted_message), "%s : %s\n", client_name, buffer);
 
-        log_message(port, client_name, buffer, channel_name);
+        log_message(channel_name, client_name, buffer);
         broadcast_message(channel, formatted_message, client_socket);
     }
 
