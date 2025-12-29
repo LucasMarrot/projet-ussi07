@@ -262,63 +262,6 @@ void remove_client_from_channel(Channel *channel, int client_socket)
 }
 
 /**
- * Envoie un fichier à un client.
- * @param client_socket Le socket du client.
- * @param file_path Le chemin du fichier à envoyer.
- */
-void send_file(int client_socket, const char *file_path)
-{
-    FILE *file = fopen(file_path, "rb");
-    if (file == NULL)
-    {
-        perror("Erreur lors de l'ouverture du fichier");
-        return;
-    }
-
-    char buffer[BUFFER_SIZE];
-    size_t read_size;
-    while ((read_size = fread(buffer, 1, sizeof(buffer), file)) > 0)
-    {
-        send(client_socket, buffer, read_size, 0);
-    }
-    fclose(file);
-}
-
-/**
- * Liste les fichiers disponibles dans un channel.
- * @param client_socket Le socket du client.
- * @param port Le port du channel.
- */
-void list_files(int client_socket, int port)
-{
-    char dir_path[256];
-    snprintf(dir_path, sizeof(dir_path), "storage_server/storage_%d", port);
-
-    DIR *dir = opendir(dir_path);
-    if (dir == NULL)
-    {
-        perror("Erreur lors de l'ouverture du dossier");
-        return;
-    }
-
-    struct dirent *entry;
-    char message[BUFFER_SIZE] = "Fichiers disponibles :\n";
-    while ((entry = readdir(dir)) != NULL)
-    {
-        if (entry->d_type == DT_REG && strncmp(entry->d_name, "history_channel_file_", 21) != 0)
-        {
-            snprintf(message + strlen(message), sizeof(message) - strlen(message), "%s\n", entry->d_name);
-        }
-    }
-    closedir(dir);
-
-    send(client_socket, message, strlen(message), 0);
-    send(client_socket, "Appuyez sur Entrée pour revenir au chat...\n", 40, 0);
-    char buffer[BUFFER_SIZE];
-    recv(client_socket, buffer, sizeof(buffer), 0); // Attendre que l'utilisateur appuie sur Entrée
-}
-
-/**
  * Gère les connexions des clients.
  * @param args Les arguments passés à la fonction.
  * @return NULL.
@@ -392,74 +335,6 @@ void *handle_client(void *args)
             snprintf(switch_message, sizeof(switch_message), "Vous avez rejoint le channel '%s'\n", new_channel_name);
             send(client_socket, switch_message, strlen(switch_message), 0);
 
-            continue;
-        }
-
-        if (strncmp(buffer, "/send ", 6) == 0)
-        {
-            char file_path[BUFFER_SIZE];
-            sscanf(buffer + 6, "%s", file_path);
-
-            FILE *file = fopen(file_path, "rb");
-            if (file == NULL)
-            {
-                send(client_socket, "Erreur envoie du fichier\n", 25, 0);
-                continue;
-            }
-            fclose(file);
-
-            char storage_path[BUFFER_SIZE];
-            snprintf(storage_path, sizeof(storage_path), "storage_server/storage_%d/%s", port, file_path);
-
-            FILE *storage_file = fopen(storage_path, "wb");
-            if (storage_file == NULL)
-            {
-                send(client_socket, "Erreur : Impossible de créer le fichier dans le stockage\n", 50, 0);
-                continue;
-            }
-
-            file = fopen(file_path, "rb");
-            char file_buffer[BUFFER_SIZE];
-            size_t read_size;
-            while ((read_size = fread(file_buffer, 1, sizeof(file_buffer), file)) > 0)
-            {
-                fwrite(file_buffer, 1, read_size, storage_file);
-            }
-            fclose(file);
-            fclose(storage_file);
-
-            char message[BUFFER_SIZE];
-            snprintf(message, sizeof(message), "%s disponible au téléchargement avec /download %s\n", file_path, file_path);
-            broadcast_message(channel, message, client_socket);
-            continue;
-        }
-
-        if (strncmp(buffer, "/download ", 10) == 0)
-        {
-            char file_name[BUFFER_SIZE];
-            sscanf(buffer + 10, "%s", file_name);
-
-            char file_path[BUFFER_SIZE];
-            snprintf(file_path, sizeof(file_path), "storage_server/storage_%d/%s", port, file_name);
-
-            FILE *file = fopen(file_path, "rb");
-            if (file == NULL)
-            {
-                send(client_socket, "Erreur téléchargement du fichier\n", 30, 0);
-                continue;
-            }
-            fclose(file);
-
-            send_file(client_socket, file_path);
-            char message[BUFFER_SIZE];
-            snprintf(message, sizeof(message), "Téléchargement de %s réussi\n", file_name);
-            send(client_socket, message, strlen(message), 0);
-            continue;
-        }
-
-        if (strcmp(buffer, "/list") == 0)
-        {
-            list_files(client_socket, port);
             continue;
         }
 

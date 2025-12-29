@@ -100,10 +100,7 @@ void chat(int client_socket, char *channel_name)
                 printf("-------------------------\n");
                 printf("/quit             : Quitter le chat\n");
                 printf("/switch [channel] : Changer de channel\n");
-                printf("/help             : Afficher cette aide\n");
-                printf("/send [file]      : Envoyer un fichier au channel\n");
-                printf("/download [file] : Télécharger un fichier du channel\n");
-                printf("/list             : Lister les fichiers du channel\n\n");
+                printf("/help             : Afficher cette aide\n\n");
                 printf("Appuyez sur Entrée pour revenir au chat...\n");
                 getchar();
                 display_history_and_prompt(history, "Envoyer un message : ");
@@ -126,40 +123,6 @@ void chat(int client_socket, char *channel_name)
             display_history_and_prompt(history, "Envoyer un message : ");
         }
     }
-}
-
-/**
- * Reçoit un fichier du serveur et le sauvegarde dans le dossier "downloads".
- * @param client_socket Le socket du client.
- * @param file_name Le nom du fichier à recevoir.
- */
-void receive_file(int client_socket, const char *file_name)
-{
-    char buffer[BUFFER_SIZE];
-    char download_dir[BUFFER_SIZE] = "downloads/";
-    mkdir(download_dir, 0777);
-
-    char file_path[BUFFER_SIZE];
-    snprintf(file_path, sizeof(file_path), "%s%s", download_dir, file_name);
-
-    FILE *file = fopen(file_path, "wb");
-    if (file == NULL)
-    {
-        perror("Erreur lors de la création du fichier");
-        return;
-    }
-
-    while (1)
-    {
-        int read_size = recv(client_socket, buffer, sizeof(buffer), 0);
-        if (read_size <= 0)
-        {
-            break;
-        }
-        fwrite(buffer, 1, read_size, file);
-    }
-    fclose(file);
-    printf("Fichier '%s' reçu avec succès.\n", file_name);
 }
 
 int main()
