@@ -22,7 +22,6 @@ typedef struct
     char name[50];
     int clients[MAX_CLIENTS];
     int client_count;
-    int is_new; // Indique si le channel est nouveau
 } Channel;
 
 Channel channels[MAX_CHANNELS];
@@ -205,7 +204,6 @@ Channel *find_or_create_channel(const char *channel_name)
     strncpy(channels[channel_count].name, channel_name, sizeof(channels[channel_count].name) - 1);
     channels[channel_count].name[sizeof(channels[channel_count].name) - 1] = '\0';
     channels[channel_count].client_count = 0;
-    channels[channel_count].is_new = 1;
     ensure_channel_directory_and_file(channel_name); // Crée le dossier et le fichier du channel
     write_welcome_message(channel_name);             // Écrit le message de bienvenue si nécessaire
     channel_count++;
