@@ -10,7 +10,6 @@
 #include <time.h>
 #include <dirent.h>
 #include <sys/types.h>
-#include <ctype.h>
 
 #define PORT 12345
 #define BUFFER_SIZE 1024
@@ -27,18 +26,6 @@ typedef struct
 Channel channels[MAX_CHANNELS];
 int channel_count = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-
-/**
- * Convertit une string en minuscules.
- * @param str La string à convertir.
- */
-void to_lowercase(char *str)
-{
-    for (int i = 0; str[i] != '\0'; i++)
-    {
-        str[i] = tolower(str[i]);
-    }
-}
 
 /**
  * Obtient le chemin du fichier de stockage pour un channel.
@@ -287,7 +274,6 @@ void *handle_client(void *args)
 
     recv(client_socket, client_name, sizeof(client_name), 0);
     recv(client_socket, channel_name, sizeof(channel_name), 0);
-    to_lowercase(channel_name);
 
     Channel *channel = find_or_create_channel(channel_name);
 
@@ -323,7 +309,6 @@ void *handle_client(void *args)
         {
             char new_channel_name[50];
             sscanf(buffer + 8, "%s", new_channel_name);
-            to_lowercase(new_channel_name);
 
             Channel *new_channel = find_or_create_channel(new_channel_name);
 
@@ -337,11 +322,11 @@ void *handle_client(void *args)
             pthread_mutex_lock(&mutex);
             int remaining_clients = channel->client_count - 1;
             pthread_mutex_unlock(&mutex);
-            
+
             char leave_message[BUFFER_SIZE];
             snprintf(leave_message, sizeof(leave_message), "%s a quitter le channel '%s'... (%d/%d)\n", client_name, channel_name, remaining_clients, MAX_CLIENTS);
             broadcast_message(channel, leave_message, client_socket);
-            
+
             remove_client_from_channel(channel, client_socket);
 
             pthread_mutex_lock(&mutex);

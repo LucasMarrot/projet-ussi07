@@ -5,8 +5,23 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 #define BUFFER_SIZE 1024
+#define PORT 12345
+#define ADRESSE_IP "127.0.0.1"
+
+/**
+ * Convertit une string en minuscules.
+ * @param str La string à convertir.
+ */
+void to_lowercase(char *str)
+{
+    for (int i = 0; str[i] != '\0'; i++)
+    {
+        str[i] = tolower(str[i]);
+    }
+}
 
 /**
  * Formate l'heure actuelle dans un buffer.
@@ -23,13 +38,12 @@ void format_current_time(char *buffer, size_t buffer_size)
 /**
  * Affiche l'historique et le prompt.
  * @param history L'historique des messages.
- * @param prompt_message Le message de prompt.
  */
-void display_history_and_prompt(const char *history, const char *prompt_message)
+void display_history_and_prompt(const char *history)
 {
     system("clear");
     printf("%s", history);
-    printf("\n%s", prompt_message);
+    printf("\n%s", "Envoyer un message : ");
     fflush(stdout);
 }
 
@@ -66,7 +80,7 @@ void chat(int client_socket, char *channel_name)
             }
             buffer[read_size] = '\0';
             strcat(history, buffer);
-            display_history_and_prompt(history, "Envoyer un message : ");
+            display_history_and_prompt(history);
         }
 
         if (FD_ISSET(STDIN_FILENO, &read_fds))
@@ -74,37 +88,53 @@ void chat(int client_socket, char *channel_name)
             fgets(buffer, sizeof(buffer), stdin);
             buffer[strcspn(buffer, "\n")] = '\0';
 
-            if (strcmp(buffer, "/quit") == 0)
+            if (buffer[0] == '/')
             {
-                system("clear");
-                printf("Déconnexion...\n");
-                break;
-            }
+                to_lowercase(buffer);
 
-            if (strncmp(buffer, "/switch ", 8) == 0)
-            {
-                char new_channel[BUFFER_SIZE];
-                sscanf(buffer + 8, "%s", new_channel);
-                send(client_socket, buffer, strlen(buffer), 0);
-                strncpy(channel_name, new_channel, sizeof(channel_name) - 1);
-                channel_name[sizeof(channel_name) - 1] = '\0';
-                snprintf(history, sizeof(history), "Changement vers le channel '%s'\n", channel_name);
-                display_history_and_prompt(history, "Envoyer un message : ");
-                continue;
-            }
+                if (strcmp(buffer, "/quit") == 0)
+                {
+                    system("clear");
+                    printf("Déconnexion...\n");
+                    break;
+                }
 
-            if (strcmp(buffer, "/help") == 0)
-            {
-                system("clear");
-                printf("\n\nCommandes disponibles :\n");
-                printf("-------------------------\n");
-                printf("/quit             : Quitter le chat\n");
-                printf("/switch [channel] : Changer de channel\n");
-                printf("/help             : Afficher cette aide\n\n");
-                printf("Appuyez sur Entrée pour revenir au chat...\n");
-                getchar();
-                display_history_and_prompt(history, "Envoyer un message : ");
-                continue;
+                else if (strncmp(buffer, "/switch ", 8) == 0)
+                {
+                    char new_channel[BUFFER_SIZE];
+                    sscanf(buffer + 8, "%s", new_channel);
+
+                    send(client_socket, buffer, strlen(buffer), 0);
+                    strncpy(channel_name, new_channel, sizeof(channel_name) - 1);
+                    channel_name[sizeof(channel_name) - 1] = '\0';
+                    snprintf(history, sizeof(history), "Changement vers le channel '%s'\n", channel_name);
+                    display_history_and_prompt(history);
+                    continue;
+                }
+
+                else if (strcmp(buffer, "/help") == 0)
+                {
+                    system("clear");
+                    printf("\n\nCommandes disponibles :\n");
+                    printf("-------------------------\n");
+                    printf("/quit             : Quitter le chat\n");
+                    printf("/switch [channel] : Changer de channel\n");
+                    printf("/help             : Afficher cette aide\n\n");
+                    printf("Appuyez sur Entrée pour revenir au chat...\n");
+                    getchar();
+                    display_history_and_prompt(history);
+                    continue;
+                }
+
+                else
+                {
+                    char formatted_message[BUFFER_SIZE];
+                    snprintf(formatted_message, sizeof(formatted_message), "Commande inconnue. Tapez /help pour la liste des commandes.\n");
+                    strcat(history, formatted_message);
+
+                    display_history_and_prompt(history);
+                    continue;
+                }
             }
 
             if (send(client_socket, buffer, strlen(buffer), 0) == -1)
@@ -120,7 +150,7 @@ void chat(int client_socket, char *channel_name)
             snprintf(formatted_message, sizeof(formatted_message), "[%s] (%s) Moi : %s\n", channel_name, time_buffer, buffer);
 
             strcat(history, formatted_message);
-            display_history_and_prompt(history, "Envoyer un message : ");
+            display_history_and_prompt(history);
         }
     }
 }
@@ -129,7 +159,7 @@ int main()
 {
     int client_socket;
     struct sockaddr_in server_addr;
-    char name[50];
+    char user_name[50];
     char channel_name[50];
 
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -140,8 +170,8 @@ int main()
     }
 
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    server_addr.sin_port = htons(12345);
+    server_addr.sin_addr.s_addr = inet_addr(ADRESSE_IP);
+    server_addr.sin_port = htons(PORT);
 
     if (connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
     {
@@ -150,16 +180,18 @@ int main()
     }
 
     printf("Entrez votre nom : ");
-    fgets(name, sizeof(name), stdin);
-    name[strcspn(name, "\n")] = '\0';
-    send(client_socket, name, strlen(name), 0);
+    fgets(user_name, sizeof(user_name), stdin);
+    user_name[strcspn(user_name, "\n")] = '\0';
+    send(client_socket, user_name, strlen(user_name), 0);
 
     printf("Entrez le nom du channel : ");
     fgets(channel_name, sizeof(channel_name), stdin);
+    to_lowercase(channel_name);
     channel_name[strcspn(channel_name, "\n")] = '\0';
     send(client_socket, channel_name, strlen(channel_name), 0);
 
     chat(client_socket, channel_name);
     close(client_socket);
+
     return 0;
 }
