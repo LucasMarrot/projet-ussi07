@@ -60,18 +60,22 @@ void chat(int client_socket, char *channel_name)
 
     while (1)
     {
+        // ÉTAPE 8 : Initialiser le set de descripteurs de fichiers
         FD_ZERO(&read_fds);
         FD_SET(STDIN_FILENO, &read_fds);
         FD_SET(client_socket, &read_fds);
 
+        // ÉTAPE 9 : Attendre une entrée du serveur ou de l'utilisateur
         if (select(client_socket + 1, &read_fds, NULL, NULL, NULL) < 0)
         {
             perror("Erreur lors de select");
             break;
         }
 
+        // ÉTAPE 10 : Vérifier si le serveur a envoyé un message
         if (FD_ISSET(client_socket, &read_fds))
         {
+            // ÉTAPE 11 : Recevoir le message du serveur
             int read_size = recv(client_socket, buffer, sizeof(buffer), 0);
             if (read_size <= 0)
             {
@@ -83,15 +87,19 @@ void chat(int client_socket, char *channel_name)
             display_history_and_prompt(history);
         }
 
+        // ÉTAPE 12 : Vérifier si l'utilisateur a tapé quelque chose
         if (FD_ISSET(STDIN_FILENO, &read_fds))
         {
+            // ÉTAPE 13 : Lire l'entrée utilisateur
             fgets(buffer, sizeof(buffer), stdin);
             buffer[strcspn(buffer, "\n")] = '\0';
 
+            // ÉTAPE 14 : Vérifier si c'est une commande (commençant par /)
             if (buffer[0] == '/')
             {
                 to_lowercase(buffer);
 
+                // ÉTAPE 14a : Commande /quit - quitter le chat
                 if (strcmp(buffer, "/quit") == 0)
                 {
                     system("clear");
@@ -99,6 +107,7 @@ void chat(int client_socket, char *channel_name)
                     break;
                 }
 
+                // ÉTAPE 14b : Commande /switch - changer de channel
                 else if (strncmp(buffer, "/switch ", 8) == 0)
                 {
                     char new_channel[BUFFER_SIZE];
@@ -112,6 +121,7 @@ void chat(int client_socket, char *channel_name)
                     continue;
                 }
 
+                // ÉTAPE 14c : Commande /help - afficher l'aide
                 else if (strcmp(buffer, "/help") == 0)
                 {
                     system("clear");
@@ -126,6 +136,7 @@ void chat(int client_socket, char *channel_name)
                     continue;
                 }
 
+                // ÉTAPE 14d : Commande inconnue
                 else
                 {
                     char formatted_message[BUFFER_SIZE];
@@ -137,12 +148,14 @@ void chat(int client_socket, char *channel_name)
                 }
             }
 
+            // ÉTAPE 15 : Envoyer le message au serveur (pas une commande)
             if (send(client_socket, buffer, strlen(buffer), 0) == -1)
             {
                 perror("Erreur lors de l'envoi du message");
                 break;
             }
 
+            // ÉTAPE 16 : Formater et afficher le message localement
             char time_buffer[26];
             format_current_time(time_buffer, sizeof(time_buffer));
 
@@ -162,6 +175,7 @@ int main()
     char user_name[50];
     char channel_name[50];
 
+    // ÉTAPE 1 : Créer un socket client
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (client_socket == -1)
     {
@@ -169,28 +183,35 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // ÉTAPE 2 : Configurer l'adresse du serveur (IP: 127.0.0.1, PORT: 12345)
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = inet_addr(ADRESSE_IP);
     server_addr.sin_port = htons(PORT);
 
+    // ÉTAPE 3 : Se connecter au serveur
     if (connect(client_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1)
     {
         perror("Erreur lors de la connexion au serveur");
         exit(EXIT_FAILURE);
     }
 
+    // ÉTAPE 4 : Demander et envoyer le nom d'utilisateur au serveur
     printf("Entrez votre nom : ");
     fgets(user_name, sizeof(user_name), stdin);
     user_name[strcspn(user_name, "\n")] = '\0';
     send(client_socket, user_name, strlen(user_name), 0);
 
+    // ÉTAPE 5 : Demander et envoyer le nom du channel au serveur
     printf("Entrez le nom du channel : ");
     fgets(channel_name, sizeof(channel_name), stdin);
     to_lowercase(channel_name);
     channel_name[strcspn(channel_name, "\n")] = '\0';
     send(client_socket, channel_name, strlen(channel_name), 0);
 
+    // ÉTAPE 6 : Lancer la boucle de chat
     chat(client_socket, channel_name);
+
+    // ÉTAPE 7 : Fermer le socket et terminer le programme
     close(client_socket);
 
     return 0;

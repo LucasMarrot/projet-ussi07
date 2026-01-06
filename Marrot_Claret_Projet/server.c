@@ -286,10 +286,12 @@ void *handle_client(void *args)
     char client_name[50];
     char channel_name[50];
 
+    // ÉTAPE 8 : Recevoir le nom du client depuis la connexion
     recv(client_socket, client_name, sizeof(client_name), 0);
+    // ÉTAPE 9 : Recevoir le nom du channel depuis la connexion
     recv(client_socket, channel_name, sizeof(channel_name), 0);
 
-    // Vérifier si le nombre maximum de clients est dépassé
+    // ÉTAPE 10 : Vérifier si le nombre maximum de clients est dépassé
     pthread_mutex_lock(&mutex);
     int total_clients = count_total_clients();
     pthread_mutex_unlock(&mutex);
@@ -301,6 +303,7 @@ void *handle_client(void *args)
         return NULL;
     }
 
+    // ÉTAPE 11 : Trouver ou créer le channel demandé
     Channel *channel = find_or_create_channel(channel_name);
 
     if (channel == NULL)
@@ -309,33 +312,41 @@ void *handle_client(void *args)
         return NULL;
     }
 
+    // ÉTAPE 12 : Ajouter le client au channel
     pthread_mutex_lock(&mutex);
     channel->clients[channel->client_count++] = client_socket;
     int current_count = channel->client_count;
     pthread_mutex_unlock(&mutex);
 
+    // ÉTAPE 13 : Envoyer l'historique du channel au client
     send_storage_to_client(client_socket, channel_name);
 
-    // Envoyer un message d'entrée à tous les clients du channel (sauf le nouveau)
+    // ÉTAPE 14 : Notifier les autres clients que le nouveau client a rejoint le channel
     char join_message[BUFFER_SIZE];
     snprintf(join_message, sizeof(join_message), "%s a rejoint le channel '%s'... (%d/%d)\n", client_name, channel_name, current_count, MAX_CLIENTS);
     broadcast_message(channel, join_message, client_socket);
 
+    // ÉTAPE 15 : Boucle principale de gestion des messages du client
     while (1)
     {
+        // ÉTAPE 16 : Recevoir un message du client
         int read_size = recv(client_socket, buffer, sizeof(buffer), 0);
         if (read_size <= 0)
         {
+            // Connexion fermée ou erreur de réception
             break;
         }
 
         buffer[read_size] = '\0';
 
+        // ÉTAPE 17 : Vérifier si le client demande de changer de channel
         if (strncmp(buffer, "/switch ", 8) == 0)
         {
+            // ÉTAPE 18 : Extraire le nouveau nom de channel
             char new_channel_name[50];
             sscanf(buffer + 8, "%s", new_channel_name);
 
+            // ÉTAPE 19 : Trouver ou créer le nouveau channel
             Channel *new_channel = find_or_create_channel(new_channel_name);
 
             if (new_channel == NULL)
@@ -345,7 +356,7 @@ void *handle_client(void *args)
                 return NULL;
             }
 
-            // Envoyer un message de départ à l'ancien channel
+            // ÉTAPE 20 : Notifier l'ancien channel que le client a quitté
             pthread_mutex_lock(&mutex);
             int remaining_clients = channel->client_count - 1;
             pthread_mutex_unlock(&mutex);
@@ -354,24 +365,29 @@ void *handle_client(void *args)
             snprintf(leave_message, sizeof(leave_message), "%s a quitter le channel '%s'... (%d/%d)\n", client_name, channel_name, remaining_clients, MAX_CLIENTS);
             broadcast_message(channel, leave_message, client_socket);
 
+            // ÉTAPE 21 : Supprimer le client de l'ancien channel
             remove_client_from_channel(channel, client_socket);
 
+            // ÉTAPE 22 : Ajouter le client au nouveau channel
             pthread_mutex_lock(&mutex);
             new_channel->clients[new_channel->client_count++] = client_socket;
             int new_count = new_channel->client_count;
             pthread_mutex_unlock(&mutex);
 
+            // ÉTAPE 23 : Envoyer l'historique du nouveau channel au client
             send_storage_to_client(client_socket, new_channel_name);
 
-            // Envoyer un message d'entrée au nouveau channel
+            // ÉTAPE 24 : Notifier les clients du nouveau channel que ce client a rejoint
             char join_message[BUFFER_SIZE];
             snprintf(join_message, sizeof(join_message), "%s a rejoint le channel '%s'... (%d/%d)\n", client_name, new_channel_name, new_count, MAX_CLIENTS);
             broadcast_message(new_channel, join_message, client_socket);
 
+            // ÉTAPE 25 : Mettre à jour le channel actuel du client
             channel = new_channel;
             strncpy(channel_name, new_channel_name, sizeof(channel_name) - 1);
             channel_name[sizeof(channel_name) - 1] = '\0';
 
+            // ÉTAPE 26 : Confirmer au client qu'il a rejoint le nouveau channel
             char switch_message[BUFFER_SIZE];
             snprintf(switch_message, sizeof(switch_message), "Vous avez rejoint le channel '%s'\n", new_channel_name);
             send(client_socket, switch_message, strlen(switch_message), 0);
@@ -379,13 +395,15 @@ void *handle_client(void *args)
             continue;
         }
 
+        // ÉTAPE 27 : Message normal (pas une commande) -> enregistrer et diffuser
         char formatted_message[BUFFER_SIZE];
         snprintf(formatted_message, sizeof(formatted_message), "%s : %s\n", client_name, buffer);
 
+        // ÉTAPE 28 : Enregistrer le message dans le fichier et l'envoyer aux autres clients
         log_and_broadcast_message(channel_name, client_name, buffer, channel, client_socket);
     }
 
-    // Envoyer un message de départ à tous les clients du channel (sauf celui qui part)
+    // ÉTAPE 29 : Le client s'est déconnecté - notifier les autres clients
     pthread_mutex_lock(&mutex);
     int remaining_clients = channel->client_count - 1;
     pthread_mutex_unlock(&mutex);
@@ -393,8 +411,13 @@ void *handle_client(void *args)
     char leave_message[BUFFER_SIZE];
     snprintf(leave_message, sizeof(leave_message), "%s a quitter le channel '%s'... (%d/%d)\n", client_name, channel_name, remaining_clients, MAX_CLIENTS);
 
+    // ÉTAPE 30 : Envoyer le message de départ aux autres clients
     broadcast_message(channel, leave_message, client_socket);
+
+    // ÉTAPE 31 : Supprimer le client du channel
     remove_client_from_channel(channel, client_socket);
+
+    // ÉTAPE 32 : Fermer le socket du client et terminer le thread
     close(client_socket);
     return NULL;
 }
@@ -405,6 +428,7 @@ int main()
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_size;
 
+    // ÉTAPE 1 : Créer le socket serveur
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket == -1)
     {
@@ -412,10 +436,12 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // ÉTAPE 2 : Configurer l'adresse du serveur (IP: 0.0.0.0 = toutes les interfaces, PORT: 12345)
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
 
+    // ÉTAPE 3 : Binder le socket à l'adresse et au port spécifiés
     if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         perror("Erreur lors du bind");
@@ -423,6 +449,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // ÉTAPE 4 : Activer l'écoute sur le socket avec une file d'attente de 3 connexions
     if (listen(server_socket, 3) < 0)
     {
         perror("Erreur lors de l'écoute");
@@ -430,14 +457,17 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    // ÉTAPE 5 : Le serveur est prêt et en attente de connexions clients
     printf("Serveur en écoute sur le port %d...\n", PORT);
 
+    // ÉTAPE 6 : Accepter les connexions entrantes et créer un thread pour chaque client
     while ((client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &addr_size)))
     {
         pthread_t thread_id;
         new_sock = malloc(sizeof(int));
         *new_sock = client_socket;
 
+        // ÉTAPE 7 : Créer un thread pour gérer ce client
         if (pthread_create(&thread_id, NULL, handle_client, (void *)new_sock) < 0)
         {
             perror("Erreur lors de la création du thread");
@@ -445,6 +475,7 @@ int main()
             close(client_socket);
         }
 
+        // Le thread est détaché (les ressources seront libérées automatiquement)
         pthread_detach(thread_id);
     }
 
