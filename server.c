@@ -28,6 +28,20 @@ int channel_count = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**
+ * Compte le nombre total de clients connectés au serveur.
+ * @return Le nombre total de clients.
+ */
+int count_total_clients()
+{
+    int total = 0;
+    for (int i = 0; i < channel_count; ++i)
+    {
+        total += channels[i].client_count;
+    }
+    return total;
+}
+
+/**
  * Obtient le chemin du fichier de stockage pour un channel.
  * @param channel_name Le nom du channel.
  * @param buffer Le buffer où le chemin sera stocké.
@@ -275,6 +289,18 @@ void *handle_client(void *args)
     recv(client_socket, client_name, sizeof(client_name), 0);
     recv(client_socket, channel_name, sizeof(channel_name), 0);
 
+    // Vérifier si le nombre maximum de clients est dépassé
+    pthread_mutex_lock(&mutex);
+    int total_clients = count_total_clients();
+    pthread_mutex_unlock(&mutex);
+
+    if (total_clients >= MAX_CLIENTS)
+    {
+        send(client_socket, "Erreur : Le serveur est plein. Connexion refusée.\n", 51, 0);
+        close(client_socket);
+        return NULL;
+    }
+
     Channel *channel = find_or_create_channel(channel_name);
 
     if (channel == NULL)
@@ -314,8 +340,9 @@ void *handle_client(void *args)
 
             if (new_channel == NULL)
             {
-                send(client_socket, "Erreur : Impossible de rejoindre le nouveau channel\n", 50, 0);
-                continue;
+                send(client_socket, "Erreur : Impossible de rejoindre le nouveau channel\n", 55, 0);
+                close(client_socket);
+                return NULL;
             }
 
             // Envoyer un message de départ à l'ancien channel
